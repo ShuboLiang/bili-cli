@@ -166,21 +166,26 @@ pub fn pick_video(dash: &Dash, want_qn: u32) -> Result<&DashStream> {
         .ok_or_else(|| anyhow::anyhow!("no matching video stream for qn={want_qn}"))
 }
 
-pub fn pick_best_audio(dash: &Dash) -> Result<&DashStream> {
+/// Return all audio candidates ordered by preference: Dolby (highest bw first),
+/// then Hi-Res FLAC, then regular audio (highest bw first). Used for fallback
+/// downloads when the top-priority stream 404s (common for logged-out users
+/// hitting Dolby/Hi-Res CDN URLs).
+pub fn pick_audio_candidates(dash: &Dash) -> Vec<&DashStream> {
+    let mut out: Vec<&DashStream> = Vec::new();
     if let Some(dolby) = &dash.dolby {
         if let Some(aud) = dolby.audio.as_ref() {
-            if let Some(best) = aud.iter().max_by_key(|s| s.bandwidth) {
-                return Ok(best);
-            }
+            let mut sorted: Vec<&DashStream> = aud.iter().collect();
+            sorted.sort_by(|a, b| b.bandwidth.cmp(&a.bandwidth));
+            out.extend(sorted);
         }
     }
     if let Some(flac) = &dash.flac {
         if let Some(aud) = &flac.audio {
-            return Ok(aud);
+            out.push(aud);
         }
     }
-    dash.audio
-        .iter()
-        .max_by_key(|s| s.bandwidth)
-        .ok_or_else(|| anyhow::anyhow!("no audio stream"))
+    let mut regular: Vec<&DashStream> = dash.audio.iter().collect();
+    regular.sort_by(|a, b| b.bandwidth.cmp(&a.bandwidth));
+    out.extend(regular);
+    out
 }

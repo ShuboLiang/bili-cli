@@ -5,8 +5,9 @@ use std::path::Path;
 use tokio::process::Command;
 
 use crate::api::Bili;
+use crate::commands::links::pick_audio_candidates;
 use crate::commands::resolve;
-use crate::models::Dash;
+use crate::models::{Dash, DashStream};
 
 pub async fn run(
     bili: &Bili,
@@ -74,20 +75,13 @@ pub async fn run(
     let mut audio_file: Option<String> = None;
 
     if audio_only {
-        let audio = pick_audio(dash)?;
-        if !json {
-            println!("{} 音频流: {}kbps ({})", "选择".cyan(), audio.bandwidth / 1000, audio.codecs);
+        let candidates = pick_audio_candidates(dash);
+        if candidates.is_empty() {
+            bail!("no audio stream");
         }
-        if let Some(pb) = mk_bar("audio") {
-            bili.download_to_file(&audio.base_url, &a_path, Some(&pb))
-                .await
-                .context("download audio")?;
-            pb.finish_with_message("audio done");
-        } else {
-            bili.download_to_file(&audio.base_url, &a_path, None)
-                .await
-                .context("download audio")?;
-        }
+        let audio = download_audio_with_fallback(bili, &candidates, &a_path, &style, json)
+            .await
+            .context("download audio")?;
         audio_file = Some(a_path.to_string_lossy().to_string());
         if !json {
             println!("\n{} {}", "已保存:".green(), a_path.display());
@@ -96,7 +90,7 @@ pub async fn run(
     }
 
     let video = pick_video(dash, quality)?;
-    let audio = pick_audio(dash).ok();
+    let audio_candidates = pick_audio_candidates(dash);
 
     if !json {
         println!(
@@ -120,18 +114,19 @@ pub async fn run(
             .context("download video")?;
     }
 
-    if let Some(a) = audio {
-        if let Some(pb) = mk_bar("audio") {
-            bili.download_to_file(&a.base_url, &a_path, Some(&pb))
-                .await
-                .context("download audio")?;
-            pb.finish_with_message("audio done");
-        } else {
-            bili.download_to_file(&a.base_url, &a_path, None)
-                .await
-                .context("download audio")?;
+    let audio: Option<&DashStream> = if audio_candidates.is_empty() {
+        None
+    } else {
+        match download_audio_with_fallback(bili, &audio_candidates, &a_path, &style, json).await {
+            Ok(a) => Some(a),
+            Err(e) => {
+                if !json {
+                    eprintln!("{} 所有音频候选失败: {}", "警告".yellow(), e);
+                }
+                None
+            }
         }
-    }
+    };
 
     let ff_avail = ffmpeg_available();
 
@@ -215,10 +210,6 @@ fn pick_video(dash: &Dash, want_qn: u32) -> Result<&crate::models::DashStream> {
     crate::commands::links::pick_video(dash, want_qn)
 }
 
-fn pick_audio(dash: &Dash) -> Result<&crate::models::DashStream> {
-    crate::commands::links::pick_best_audio(dash)
-}
-
 fn ffmpeg_available() -> bool {
     std::process::Command::new("ffmpeg")
         .arg("-version")
@@ -256,6 +247,72 @@ async fn merge_with_ffmpeg(v: &Path, a: &Path, out: &Path) -> Result<()> {
         bail!("ffmpeg exited with status {status}; see output above");
     }
     Ok(())
+}
+
+/// Try audio candidates in priority order (Dolby → Hi-Res → regular), falling
+/// back to the next stream when the CDN rejects one (e.g. logged-out users
+/// hitting Dolby URLs get HTTP 404). Returns the stream that downloaded OK.
+async fn download_audio_with_fallback<'a>(
+    bili: &Bili,
+    candidates: &[&'a DashStream],
+    a_path: &Path,
+    style: &Option<ProgressStyle>,
+    json: bool,
+) -> Result<&'a DashStream> {
+    let mk_bar = |prefix: &str| -> Option<ProgressBar> {
+        style.as_ref().map(|s| {
+            let pb = ProgressBar::new(0);
+            pb.set_style(s.clone());
+            pb.set_prefix(prefix.to_string());
+            pb
+        })
+    };
+
+    let mut last_err: Option<anyhow::Error> = None;
+    for (i, audio) in candidates.iter().copied().enumerate() {
+        if !json {
+            if i == 0 {
+                println!(
+                    "{} 音频流: {}kbps ({})",
+                    "选择".cyan(),
+                    audio.bandwidth / 1000,
+                    audio.codecs
+                );
+            } else {
+                eprintln!(
+                    "{} 降级到音频流: {}kbps ({})",
+                    "回退".yellow(),
+                    audio.bandwidth / 1000,
+                    audio.codecs
+                );
+            }
+        }
+        let pb = mk_bar("audio");
+        match bili
+            .download_to_file(&audio.base_url, a_path, pb.as_ref())
+            .await
+        {
+            Ok(()) => {
+                if let Some(pb) = pb {
+                    pb.finish_with_message("audio done");
+                }
+                return Ok(audio);
+            }
+            Err(e) => {
+                if let Some(pb) = pb {
+                    pb.finish_with_message("audio failed");
+                }
+                if !json {
+                    eprintln!("{} 候选失败: {},尝试下一音频流", "降级".yellow(), e);
+                }
+                let _ = tokio::fs::remove_file(a_path).await;
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err
+        .map(|e| e.context(format!("all {} audio candidates failed", candidates.len())))
+        .unwrap_or_else(|| anyhow!("no audio candidates available")))
 }
 
 fn sanitize(s: &str) -> String {
