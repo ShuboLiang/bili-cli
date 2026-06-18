@@ -115,11 +115,18 @@ pub enum Commands {
         #[arg(long)]
         at: Option<String>,
         /// Frame source: auto (storyboard first, then ffmpeg), storyboard, ffmpeg.
+        /// Use ffmpeg for high-res frames (storyboard is only ~480x270 thumbnails).
         #[arg(long, default_value = "auto")]
         source: String,
         /// Frame image format: jpg (smaller, default) or png.
         #[arg(long, default_value = "jpg")]
         format: String,
+        /// Video quality for ffmpeg frame extraction.
+        /// 16=360P, 32=480P, 64=720P, 80=1080P, 112=1080P高码率, 116=1080P60.
+        /// Only affects ffmpeg path; storyboard is always low-res.
+        /// Default: 64 (720P) — readable for most slides/text.
+        #[arg(long, short = 'q', default_value_t = 64)]
+        quality: u32,
         /// Pick a specific page (分P) by 1-based index. Default: 1.
         #[arg(long, short = 'p', default_value_t = 1)]
         page: usize,

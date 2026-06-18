@@ -16,6 +16,7 @@ pub async fn run(
     at: Option<String>,
     source: &str,
     format: &str,
+    quality: u32,
     page: usize,
     json: bool,
 ) -> Result<()> {
@@ -65,11 +66,11 @@ pub async fn run(
                 if !use_ffmpeg {
                     return Err(anyhow!("storyboard unavailable and --source=storyboard: {e}"));
                 }
-                try_ffmpeg(bili, &id, cid, &timestamps, &info, out_dir, format, json).await?
+                try_ffmpeg(bili, &id, cid, &timestamps, &info, out_dir, format, quality, json).await?
             }
         }
     } else {
-        try_ffmpeg(bili, &id, cid, &timestamps, &info, out_dir, format, json).await?
+        try_ffmpeg(bili, &id, cid, &timestamps, &info, out_dir, format, quality, json).await?
     };
 
     if json {
@@ -318,32 +319,35 @@ async fn try_ffmpeg(
     info: &crate::models::VideoInfo,
     out_dir: &Path,
     format: &str,
+    quality: u32,
     json: bool,
 ) -> Result<FrameResult> {
     if !ffmpeg_available() {
         bail!("ffmpeg not found (required for --source=ffmpeg or storyboard fallback). Install with: brew install ffmpeg");
     }
 
-    // get play url, pick lowest quality video to minimize download
-    let bundle = bili.play_url(id, cid, 16).await?; // 360P
+    // get play url at requested quality (default 720P for readable text)
+    let bundle = bili.play_url(id, cid, quality).await?;
     let dash = bundle
         .dash
         .as_ref()
         .ok_or_else(|| anyhow!("no DASH stream available for frame extraction"))?;
 
-    // pick smallest video stream
-    let video = dash
-        .video
-        .iter()
-        .min_by_key(|s| s.bandwidth)
-        .ok_or_else(|| anyhow!("no video stream"))?;
+    // pick the stream matching requested quality, or best available
+    let video = crate::commands::links::pick_video(dash, quality)?;
+    let qn_desc = match video.id {
+        127 => "8K", 126 => "杜比视界", 125 => "HDR", 120 => "4K",
+        116 => "1080P60", 112 => "1080P高码", 100 => "1080P",
+        74 => "720P60", 64 => "720P", 32 => "480P", 16 => "360P",
+        _ => "未知",
+    };
 
     let tmp = std::env::temp_dir().join(format!("bili-cli-frame-{}", cid));
     tokio::fs::create_dir_all(&tmp).await.ok();
     let v_path = tmp.join("video.mp4");
 
     if !json {
-        eprintln!("{} 下载视频流 ({}kbps) 用于截帧...", "ffmpeg".cyan(), video.bandwidth / 1000);
+        eprintln!("{} 下载视频流 {} {}x{} ({}kbps) 用于截帧...", "ffmpeg".cyan(), qn_desc, video.width.unwrap_or(0), video.height.unwrap_or(0), video.bandwidth / 1000);
     }
     bili.download_to_file(&video.base_url, &v_path, None)
         .await

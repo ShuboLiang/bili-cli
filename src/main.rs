@@ -49,10 +49,11 @@ async fn main() -> Result<()> {
             at,
             source,
             format,
+            quality,
             page,
         } => {
             commands::run_frames(
-                &bili, &id, &out_dir, count, interval, at, &source, &format, page, json,
+                &bili, &id, &out_dir, count, interval, at, &source, &format, quality, page, json,
             )
             .await
         }
