@@ -21,7 +21,14 @@ pub async fn run(
 ) -> Result<()> {
     let (id, info) = resolve(bili, raw).await?;
     let cid = cid_for_page(&info, page);
-    let duration = info.duration.max(1) as f64;
+    // use the specific page's duration, not the whole video's (multi-part fix)
+    let page_idx = if page == 0 { 0 } else { page - 1 };
+    let page_duration = info
+        .pages
+        .get(page_idx)
+        .map(|p| p.duration)
+        .unwrap_or(info.duration);
+    let duration = page_duration.max(1) as f64;
 
     // compute target timestamps
     let timestamps = compute_timestamps(count, interval, at, duration)?;
@@ -30,12 +37,15 @@ pub async fn run(
     }
 
     if !json {
+        let part = info.pages.get(page_idx).map(|p| p.part.as_str()).unwrap_or("");
         eprintln!(
-            "{} {} | {} | 时长 {}s | 取 {} 帧",
+            "{} {} | {} | P{} {} | 时长 {}s | 取 {} 帧",
             "视频".cyan(),
             info.title.dimmed(),
             id.label(),
-            info.duration,
+            page.max(1),
+            part,
+            page_duration,
             timestamps.len()
         );
     }
@@ -46,7 +56,7 @@ pub async fn run(
     let use_ffmpeg = source == "auto" || source == "ffmpeg";
 
     let result: FrameResult = if use_storyboard {
-        match try_storyboard(bili, &id, cid, &timestamps, &info, out_dir, format, json).await {
+        match try_storyboard(bili, &id, cid, &timestamps, &info, duration, out_dir, format, json).await {
             Ok(r) => r,
             Err(e) => {
                 if !json {
@@ -68,7 +78,7 @@ pub async fn run(
                 bvid: info.bvid.clone(),
                 aid: info.aid,
                 title: info.title.clone(),
-                duration: info.duration,
+                duration: duration as u64,
             },
             cid,
             source: result.source.clone(),
@@ -193,6 +203,7 @@ async fn try_storyboard(
     cid: u64,
     timestamps: &[f64],
     info: &crate::models::VideoInfo,
+    duration: f64,
     out_dir: &Path,
     format: &str,
     json: bool,
@@ -206,7 +217,6 @@ async fn try_storyboard(
     if total_frames == 0 {
         bail!("sprite sheet has 0 frames");
     }
-    let duration = info.duration.max(1) as f64;
     let fps = total_frames as f64 / duration; // frames per second
 
     // download all sprite sheets to temp files

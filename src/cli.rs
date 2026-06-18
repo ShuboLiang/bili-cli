@@ -67,6 +67,9 @@ pub enum Commands {
         /// Skip merging with ffmpeg; save raw video/audio streams separately.
         #[arg(long)]
         no_merge: bool,
+        /// Pick a specific page (分P) by 1-based index. Default: 1.
+        #[arg(long, short = 'p', default_value_t = 1)]
+        page: usize,
     },
     /// Intelligently extract subtitles / captions for a video.
     Subtitle {

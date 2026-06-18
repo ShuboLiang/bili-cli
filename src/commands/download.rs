@@ -15,10 +15,13 @@ pub async fn run(
     quality: u32,
     audio_only: bool,
     no_merge: bool,
+    page: usize,
     json: bool,
 ) -> Result<()> {
     let (id, info) = resolve(bili, raw).await?;
-    let cid = info.pages.first().map(|p| p.cid).unwrap_or(info.cid);
+    let cid = crate::commands::cid_for_page(&info, page);
+    let page_idx = if page == 0 { 0 } else { page - 1 };
+    let part = info.pages.get(page_idx).map(|p| p.part.as_str()).unwrap_or("");
 
     let bundle = bili.play_url(&id, cid, quality).await?;
     let dash = bundle
@@ -27,7 +30,12 @@ pub async fn run(
         .ok_or_else(|| anyhow!("this video has no DASH stream (single-part mp4 only). Try a different video."))?;
 
     let safe_title = sanitize(&info.title);
-    let base = out_dir.join(format!("{}_{}", id.label(), safe_title));
+    let file_suffix = if !part.is_empty() {
+        format!("P{:02}_{}", page.max(1), sanitize(part))
+    } else {
+        String::new()
+    };
+    let base = out_dir.join(format!("{}_{}{}", id.label(), safe_title, if file_suffix.is_empty() { String::new() } else { format!("_{}", file_suffix) }));
     tokio::fs::create_dir_all(out_dir).await.ok();
 
     let style = if json {

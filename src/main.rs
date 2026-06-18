@@ -29,8 +29,9 @@ async fn main() -> Result<()> {
             quality,
             audio_only,
             no_merge,
+            page,
         } => {
-            commands::run_download(&bili, &id, &out_dir, quality, audio_only, no_merge, json).await
+            commands::run_download(&bili, &id, &out_dir, quality, audio_only, no_merge, page, json).await
         }
         Commands::Subtitle {
             id,
