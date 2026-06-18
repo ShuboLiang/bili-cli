@@ -1,0 +1,28 @@
+[package]
+name = "bili-cli"
+version = "0.1.0"
+edition = "2024"
+authors = ["ShuboLiang"]
+description = "A command-line tool to parse, search, download Bilibili videos and extract subtitles"
+license = "MIT"
+repository = "https://github.com/ShuboLiang/bili-cli"
+keywords = ["bilibili", "cli", "video", "downloader", "subtitle"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json", "cookies", "stream", "gzip", "brotli"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+colored = "2"
+regex = "1"
+tabled = "0.17"
+indicatif = "0.17"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
