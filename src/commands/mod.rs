@@ -1,4 +1,5 @@
 pub mod download;
+pub mod frames;
 pub mod info;
 pub mod links;
 pub mod search;
@@ -72,6 +73,7 @@ pub fn pick_best_subtitle(subs: &[SubtitleMeta]) -> &SubtitleMeta {
 }
 
 pub use download::run as run_download;
+pub use frames::run as run_frames;
 pub use info::run as run_info;
 pub use links::run as run_links;
 pub use search::run as run_search;

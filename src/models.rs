@@ -255,3 +255,32 @@ impl SubtitleLine {
         (self.to.max(0.0) * 1000.0) as u128
     }
 }
+
+// ---------- Videoshot (storyboard / sprite sheet) ----------
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Videoshot {
+    #[serde(default)]
+    pub pvdata: String,
+    #[serde(default)]
+    pub img_x_len: u32, // columns per sheet
+    #[serde(default)]
+    pub img_y_len: u32, // rows per sheet
+    #[serde(default)]
+    pub img_x_size: u32, // frame width (px)
+    #[serde(default)]
+    pub img_y_size: u32, // frame height (px)
+    #[serde(default)]
+    pub image: Vec<String>, // sprite sheet URLs (may be multiple)
+    #[serde(default)]
+    pub index: Vec<u32>, // per-frame timestamps in seconds (usually empty)
+}
+
+impl Videoshot {
+    pub fn frames_per_sheet(&self) -> u32 {
+        self.img_x_len * self.img_y_len
+    }
+    pub fn total_frames(&self) -> u32 {
+        self.frames_per_sheet() * self.image.len() as u32
+    }
+}

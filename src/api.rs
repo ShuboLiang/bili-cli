@@ -99,6 +99,14 @@ impl Bili {
         self.get_json(&url).await
     }
 
+    pub async fn videoshot(&self, id: &VideoId, cid: u64) -> Result<Videoshot> {
+        let (k, v) = id.as_query_pair();
+        let url = format!(
+            "https://api.bilibili.com/x/player/videoshot?{k}={v}&cid={cid}"
+        );
+        self.get_json(&url).await
+    }
+
     pub async fn fetch_subtitle(&self, url: &str) -> Result<SubtitleBody> {
         // subtitle_url may be protocol-relative (//ais...)
         let full = if url.starts_with("//") {
@@ -126,10 +134,17 @@ impl Bili {
     ) -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
-        let mut resp = self.client.get(url).send().await?;
+        // handle protocol-relative URLs (//i0.hdslb.com/...)
+        let full = if url.starts_with("//") {
+            format!("https:{url}")
+        } else {
+            url.to_string()
+        };
+
+        let mut resp = self.client.get(&full).send().await?;
         let status = resp.status();
         if !status.is_success() {
-            bail!("download failed: HTTP {status}");
+            bail!("download failed: HTTP {status} for {full}");
         }
         let total = resp.content_length();
         if let Some(b) = bar {

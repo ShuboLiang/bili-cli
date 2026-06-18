@@ -86,6 +86,38 @@ pub enum Commands {
         #[arg(long)]
         list: bool,
     },
+    /// Extract key frames (screenshots) at specified timestamps.
+    /// Prefers Bilibili storyboard (sprite sheet, fast); falls back to ffmpeg.
+    /// Output images + a JSON manifest for LLM vision analysis.
+    Frames {
+        /// BV id, AV id, or full video URL.
+        id: String,
+        /// Output directory for frame images.
+        #[arg(long, short = 'o', default_value = ".")]
+        out_dir: PathBuf,
+        /// Number of evenly-spaced frames to extract.
+        /// Mutually exclusive with --interval and --at. Default: 8.
+        #[arg(long, short = 'n')]
+        count: Option<usize>,
+        /// Extract one frame every N seconds.
+        /// Mutually exclusive with --count and --at.
+        #[arg(long)]
+        interval: Option<f64>,
+        /// Extract frames at specific timestamps (seconds), comma-separated.
+        /// Mutually exclusive with --count and --interval.
+        /// Example: --at 30,120,300
+        #[arg(long)]
+        at: Option<String>,
+        /// Frame source: auto (storyboard first, then ffmpeg), storyboard, ffmpeg.
+        #[arg(long, default_value = "auto")]
+        source: String,
+        /// Frame image format: jpg (smaller, default) or png.
+        #[arg(long, default_value = "jpg")]
+        format: String,
+        /// Pick a specific page (分P) by 1-based index. Default: 1.
+        #[arg(long, short = 'p', default_value_t = 1)]
+        page: usize,
+    },
     /// Build an LLM-friendly transcript (paragraph-aggregated, timestamped)
     /// from the best available subtitle. Falls back to a clear hint when no
     /// subtitle exists (so agents can switch to audio transcription).

@@ -39,6 +39,21 @@ async fn main() -> Result<()> {
             index,
             list,
         } => commands::run_subtitle(&bili, &id, out, &format, index, list, json).await,
+        Commands::Frames {
+            id,
+            out_dir,
+            count,
+            interval,
+            at,
+            source,
+            format,
+            page,
+        } => {
+            commands::run_frames(
+                &bili, &id, &out_dir, count, interval, at, &source, &format, page, json,
+            )
+            .await
+        }
         Commands::Transcript {
             id,
             page,
