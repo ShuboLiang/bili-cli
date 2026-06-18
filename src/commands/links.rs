@@ -20,11 +20,14 @@ struct VRow<'a> {
     bw: String,
 }
 
-pub async fn run(bili: &Bili, raw: &str, quality: u32, raw_only: bool) -> Result<()> {
+pub async fn run(bili: &Bili, raw: &str, quality: u32, raw_only: bool, json: bool) -> Result<()> {
     let (id, info) = resolve(bili, raw).await?;
     let cid = info.pages.first().map(|p| p.cid).unwrap_or(info.cid);
 
     let bundle = bili.play_url(&id, cid, quality).await?;
+    if json {
+        return crate::commands::print_json(&bundle);
+    }
     print_bundle(&bundle, raw_only)?;
     Ok(())
 }

@@ -15,6 +15,7 @@ pub async fn run(
     quality: u32,
     audio_only: bool,
     no_merge: bool,
+    json: bool,
 ) -> Result<()> {
     let (id, info) = resolve(bili, raw).await?;
     let cid = info.pages.first().map(|p| p.cid).unwrap_or(info.cid);
@@ -29,86 +30,176 @@ pub async fn run(
     let base = out_dir.join(format!("{}_{}", id.label(), safe_title));
     tokio::fs::create_dir_all(out_dir).await.ok();
 
-    let style = ProgressStyle::with_template(
-        "{spinner:.green} {prefix:<8} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec})",
-    )
-    .unwrap()
-    .progress_chars("=>-");
+    let style = if json {
+        None
+    } else {
+        Some(
+            ProgressStyle::with_template(
+                "{spinner:.green} {prefix:<8} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec})",
+            )
+            .unwrap()
+            .progress_chars("=>-"),
+        )
+    };
+    let mk_bar = |prefix: &str| -> Option<ProgressBar> {
+        style.as_ref().map(|s| {
+            let pb = ProgressBar::new(0);
+            pb.set_style(s.clone());
+            pb.set_prefix(prefix.to_string());
+            pb
+        })
+    };
+    let status = |msg: String| {
+        if json {
+            eprintln!("{msg}");
+        } else {
+            println!("{msg}");
+        }
+    };
 
     let v_path = base.with_extension("video.mp4");
     let a_path = base.with_extension("audio.m4a");
     let out_path = base.with_extension("mp4");
 
+    let mut merged: Option<String> = None;
+    let mut video_file: Option<String> = None;
+    let mut audio_file: Option<String> = None;
+
     if audio_only {
         let audio = pick_audio(dash)?;
-        println!("{} 音频流: {}kbps ({})", "选择".cyan(), audio.bandwidth / 1000, audio.codecs);
-        let pb = ProgressBar::new(0);
-        pb.set_style(style.clone());
-        pb.set_prefix("audio");
-        bili.download_to_file(&audio.base_url, &a_path, Some(&pb))
-            .await
-            .context("download audio")?;
-        pb.finish_with_message("audio done");
-        println!("\n{} {}", "已保存:".green(), a_path.display());
-        return Ok(());
+        if !json {
+            println!("{} 音频流: {}kbps ({})", "选择".cyan(), audio.bandwidth / 1000, audio.codecs);
+        }
+        if let Some(pb) = mk_bar("audio") {
+            bili.download_to_file(&audio.base_url, &a_path, Some(&pb))
+                .await
+                .context("download audio")?;
+            pb.finish_with_message("audio done");
+        } else {
+            bili.download_to_file(&audio.base_url, &a_path, None)
+                .await
+                .context("download audio")?;
+        }
+        audio_file = Some(a_path.to_string_lossy().to_string());
+        if !json {
+            println!("\n{} {}", "已保存:".green(), a_path.display());
+        }
+        return finish(json, &info, cid, audio.id, audio_only, merged, video_file, audio_file, false);
     }
 
     let video = pick_video(dash, quality)?;
     let audio = pick_audio(dash).ok();
 
-    println!(
-        "{} 视频 qn={} {}x{} {}",
-        "选择".cyan(),
-        video.id,
-        video.width.unwrap_or(0),
-        video.height.unwrap_or(0),
-        crate::commands::links::codec_name(video.codecid)
-    );
-
-    let vpb = ProgressBar::new(0);
-    vpb.set_style(style.clone());
-    vpb.set_prefix("video");
-    bili.download_to_file(&video.base_url, &v_path, Some(&vpb))
-        .await
-        .context("download video")?;
-    vpb.finish_with_message("video done");
-
-    if let Some(a) = audio {
-        let apb = ProgressBar::new(0);
-        apb.set_style(style.clone());
-        apb.set_prefix("audio");
-        bili.download_to_file(&a.base_url, &a_path, Some(&apb))
-            .await
-            .context("download audio")?;
-        apb.finish_with_message("audio done");
+    if !json {
+        println!(
+            "{} 视频 qn={} {}x{} {}",
+            "选择".cyan(),
+            video.id,
+            video.width.unwrap_or(0),
+            video.height.unwrap_or(0),
+            crate::commands::links::codec_name(video.codecid)
+        );
     }
 
-    if no_merge || audio.is_none() {
-        println!("\n{} {}", "已保存(视频):".green(), v_path.display());
-        if audio.is_some() {
-            println!("{} {}", "已保存(音频):".green(), a_path.display());
+    if let Some(pb) = mk_bar("video") {
+        bili.download_to_file(&video.base_url, &v_path, Some(&pb))
+            .await
+            .context("download video")?;
+        pb.finish_with_message("video done");
+    } else {
+        bili.download_to_file(&video.base_url, &v_path, None)
+            .await
+            .context("download video")?;
+    }
+
+    if let Some(a) = audio {
+        if let Some(pb) = mk_bar("audio") {
+            bili.download_to_file(&a.base_url, &a_path, Some(&pb))
+                .await
+                .context("download audio")?;
+            pb.finish_with_message("audio done");
+        } else {
+            bili.download_to_file(&a.base_url, &a_path, None)
+                .await
+                .context("download audio")?;
         }
-        return Ok(());
+    }
+
+    let ff_avail = ffmpeg_available();
+
+    if no_merge || audio.is_none() {
+        video_file = Some(v_path.to_string_lossy().to_string());
+        if audio.is_some() {
+            audio_file = Some(a_path.to_string_lossy().to_string());
+        }
+        if !json {
+            println!("\n{} {}", "已保存(视频):".green(), v_path.display());
+            if audio.is_some() {
+                println!("{} {}", "已保存(音频):".green(), a_path.display());
+            }
+        }
+        return finish(json, &info, cid, video.id, audio_only, merged, video_file, audio_file, false);
     }
 
     // merge with ffmpeg
-    if !ffmpeg_available() {
-        eprintln!(
+    if !ff_avail {
+        status(format!(
             "{} 未找到 ffmpeg,跳过合并。视频/音频分别保存在:\n  {}\n  {}\n请安装 ffmpeg 后重新运行,或手动合并。",
             "警告:".yellow(),
             v_path.display(),
             a_path.display()
-        );
-        return Ok(());
+        ));
+        video_file = Some(v_path.to_string_lossy().to_string());
+        audio_file = Some(a_path.to_string_lossy().to_string());
+        return finish(json, &info, cid, video.id, audio_only, merged, video_file, audio_file, false);
     }
 
-    println!("\n{} 用 ffmpeg 合并音视频...", "合并".cyan());
+    if !json {
+        println!("\n{} 用 ffmpeg 合并音视频...", "合并".cyan());
+    }
     merge_with_ffmpeg(&v_path, &a_path, &out_path).await?;
-    println!("{} {}", "完成:".green(), out_path.display());
+    merged = Some(out_path.to_string_lossy().to_string());
+    if !json {
+        println!("{} {}", "完成:".green(), out_path.display());
+    }
 
     // cleanup intermediates
     let _ = tokio::fs::remove_file(&v_path).await;
     let _ = tokio::fs::remove_file(&a_path).await;
+
+    finish(json, &info, cid, video.id, audio_only, merged, video_file, audio_file, true)
+}
+
+fn finish(
+    json: bool,
+    info: &crate::models::VideoInfo,
+    cid: u64,
+    qn: u32,
+    audio_only: bool,
+    merged: Option<String>,
+    video_file: Option<String>,
+    audio_file: Option<String>,
+    ffmpeg_merged: bool,
+) -> Result<()> {
+    if json {
+        let payload = serde_json::json!({
+            "video": {
+                "bvid": info.bvid,
+                "aid": info.aid,
+                "title": info.title,
+            },
+            "cid": cid,
+            "quality": qn,
+            "audio_only": audio_only,
+            "files": {
+                "merged": merged,
+                "video": video_file,
+                "audio": audio_file,
+            },
+            "ffmpeg_merged": ffmpeg_merged,
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    }
     Ok(())
 }
 

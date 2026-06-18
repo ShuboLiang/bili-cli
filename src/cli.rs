@@ -14,6 +14,11 @@ pub struct Cli {
     #[arg(long, short = 'c', global = true, env = "BILI_SESSDATA")]
     pub sessdata: Option<String>,
 
+    /// Machine-readable JSON output for all commands (for agents / scripting).
+    /// Suppresses colored tables and progress bars on stdout.
+    #[arg(long, global = true)]
+    pub json: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -80,5 +85,35 @@ pub enum Commands {
         /// Just list available subtitles, do not extract.
         #[arg(long)]
         list: bool,
+    },
+    /// Build an LLM-friendly transcript (paragraph-aggregated, timestamped)
+    /// from the best available subtitle. Falls back to a clear hint when no
+    /// subtitle exists (so agents can switch to audio transcription).
+    Transcript {
+        /// BV id, AV id, or full video URL.
+        id: String,
+        /// Pick a specific page (分P) by 1-based index. Default: 1 (first page).
+        #[arg(long, short = 'p', default_value_t = 1)]
+        page: usize,
+        /// Start time in seconds (crop transcript from this point).
+        #[arg(long, default_value_t = 0.0)]
+        start: f64,
+        /// End time in seconds (crop transcript up to this point). 0 = until end.
+        #[arg(long, default_value_t = 0.0)]
+        end: f64,
+        /// Hard cap on output characters (token-budget guard). 0 = no cap.
+        /// When truncated, a note is appended (text/md) or `truncated=true` (json).
+        #[arg(long, default_value_t = 0)]
+        max_chars: usize,
+        /// Transcript body format: text (default) or markdown.
+        /// Ignored when --json is set (use --format to pick the embedded body style).
+        #[arg(long, short = 'f', default_value = "text")]
+        format: String,
+        /// Omit leading timestamps from each paragraph.
+        #[arg(long)]
+        no_timestamps: bool,
+        /// Output file. If omitted, prints to stdout.
+        #[arg(long, short = 'o')]
+        out: Option<PathBuf>,
     },
 }

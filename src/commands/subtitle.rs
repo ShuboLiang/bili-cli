@@ -4,8 +4,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::api::Bili;
-use crate::commands::resolve;
-use crate::models::{SubtitleBody, SubtitleMeta};
+use crate::commands::{pick_best_subtitle, resolve};
+use crate::models::SubtitleBody;
 
 pub async fn run(
     bili: &Bili,
@@ -14,6 +14,7 @@ pub async fn run(
     format: &str,
     index: usize,
     list_only: bool,
+    json: bool,
 ) -> Result<()> {
     let (_id, info) = resolve(bili, raw).await?;
     let cid = info.pages.first().map(|p| p.cid).unwrap_or(info.cid);
@@ -27,6 +28,10 @@ pub async fn run(
         .ok_or_else(|| anyhow!("该视频没有可用字幕(可能需要登录 SESSDATA,或视频本身无字幕)"))?;
 
     if list_only {
+        if json {
+            crate::commands::print_json(&subs)?;
+            return Ok(());
+        }
         println!("{}", "可用字幕".bold().cyan());
         for (i, s) in subs.iter().enumerate() {
             let kind = if s.ai_type != 0 { "AI" } else { "人工" };
@@ -46,15 +51,17 @@ pub async fn run(
         subs.get(index - 1)
             .ok_or_else(|| anyhow!("字幕索引 {index} 超出范围(共 {} 个)", subs.len()))?
     } else {
-        pick_best(subs)
+        pick_best_subtitle(subs)
     };
 
-    println!(
-        "{} 选中: {} ({})",
-        "字幕".cyan(),
-        chosen.lan_doc.dimmed(),
-        chosen.lan
-    );
+    if !json {
+        println!(
+            "{} 选中: {} ({})",
+            "字幕".cyan(),
+            chosen.lan_doc.dimmed(),
+            chosen.lan
+        );
+    }
 
     if chosen.subtitle_url.is_empty() {
         bail!("字幕 URL 为空,无法获取");
@@ -75,41 +82,17 @@ pub async fn run(
             }
             let mut f = std::fs::File::create(&path)?;
             f.write_all(rendered.as_bytes())?;
-            println!("{} {}", "已保存:".green(), path.display());
+            if !json {
+                println!("{} {}", "已保存:".green(), path.display());
+            } else {
+                eprintln!("已保存: {}", path.display());
+            }
         }
         None => {
             print!("{rendered}");
         }
     }
     Ok(())
-}
-
-/// Pick the "smart" best subtitle: prefer manual zh-Hans, then zh-Hant, zh,
-/// then AI-generated zh, then english, then the first one.
-fn pick_best(subs: &[SubtitleMeta]) -> &SubtitleMeta {
-    let order: &[(&str, bool)] = &[
-        ("zh-Hans", false),
-        ("zh-CN", false),
-        ("zh-Hant", false),
-        ("zh-TW", false),
-        ("zh", false),
-        ("zh-Hans", true),
-        ("ai-zh", true),
-        ("en", false),
-        ("en", true),
-    ];
-    for (lang, allow_ai) in order {
-        if let Some(m) = subs
-            .iter()
-            .find(|s| s.lan.eq_ignore_ascii_case(lang) && (s.ai_type != 0) == *allow_ai)
-        {
-            return m;
-        }
-    }
-    // last resort: prefer non-AI then first
-    subs.iter()
-        .find(|s| s.ai_type == 0)
-        .unwrap_or(&subs[0])
 }
 
 fn render(body: &SubtitleBody, format: &str) -> Result<String> {

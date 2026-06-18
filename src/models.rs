@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ApiResponse<T> {
     pub code: i64,
     #[serde(default)]
@@ -10,7 +10,7 @@ pub struct ApiResponse<T> {
     pub data: Option<T>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VideoInfo {
     pub bvid: String,
     pub aid: u64,
@@ -38,7 +38,7 @@ pub struct VideoInfo {
     pub pages: Vec<VideoPage>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VideoOwner {
     pub mid: u64,
     pub name: String,
@@ -46,7 +46,7 @@ pub struct VideoOwner {
     pub face: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VideoStat {
     #[serde(default)]
     pub view: u64,
@@ -64,7 +64,7 @@ pub struct VideoStat {
     pub like: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VideoDimension {
     pub width: u64,
     pub height: u64,
@@ -72,7 +72,7 @@ pub struct VideoDimension {
     pub rotate: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VideoPage {
     pub cid: u64,
     #[serde(default)]
@@ -83,7 +83,7 @@ pub struct VideoPage {
     pub duration: u64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlayUrlBundle {
     #[serde(default)]
     pub accept_quality: Vec<u32>,
@@ -99,7 +99,7 @@ pub struct PlayUrlBundle {
     pub dash: Option<Dash>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DurlItem {
     pub order: u64,
     pub length: u64,
@@ -109,7 +109,7 @@ pub struct DurlItem {
     pub backup_url: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Dash {
     #[serde(default)]
     pub video: Vec<DashStream>,
@@ -121,7 +121,7 @@ pub struct Dash {
     pub flac: Option<DashFlac>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DashStream {
     pub id: u32,
     #[serde(default)]
@@ -144,7 +144,7 @@ pub struct DashStream {
     pub frame_rate: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DashDolby {
     #[serde(default)]
     pub type_: Option<u32>,
@@ -152,7 +152,7 @@ pub struct DashDolby {
     pub audio: Option<Vec<DashStream>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DashFlac {
     #[serde(default)]
     pub display: bool,
@@ -162,7 +162,7 @@ pub struct DashFlac {
 
 // ---------- Search ----------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchResult {
     #[serde(default)]
     pub page: u64,
@@ -174,7 +174,7 @@ pub struct SearchResult {
     pub result: Vec<SearchItem>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchItem {
     #[serde(default)]
     pub aid: u64,
@@ -207,19 +207,19 @@ pub struct SearchItem {
 
 // ---------- Subtitle ----------
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlayerView {
     #[serde(default)]
     pub subtitle: Option<PlayerSubtitle>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlayerSubtitle {
     #[serde(default)]
     pub subtitles: Vec<SubtitleMeta>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SubtitleMeta {
     #[serde(default)]
     pub lan: String,

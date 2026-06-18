@@ -4,8 +4,12 @@ use colored::Colorize;
 use crate::api::Bili;
 use crate::commands::{header, human_count, human_duration, resolve};
 
-pub async fn run(bili: &Bili, raw: &str) -> Result<()> {
+pub async fn run(bili: &Bili, raw: &str, json: bool) -> Result<()> {
     let (id, info) = resolve(bili, raw).await?;
+
+    if json {
+        return crate::commands::print_json(&info);
+    }
 
     println!("{}", info.title.bold());
     println!("{} {}", header("ID:    "), id.label());

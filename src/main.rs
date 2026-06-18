@@ -13,14 +13,15 @@ use cli::{Cli, Commands};
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let bili = api::Bili::new(cli.sessdata)?;
+    let json = cli.json;
 
     match cli.command {
-        Commands::Info { id } => commands::run_info(&bili, &id).await,
+        Commands::Info { id } => commands::run_info(&bili, &id, json).await,
         Commands::Search { keyword, limit } => {
-            commands::run_search(&bili, &keyword, limit).await
+            commands::run_search(&bili, &keyword, limit, json).await
         }
         Commands::Links { id, quality, raw } => {
-            commands::run_links(&bili, &id, quality, raw).await
+            commands::run_links(&bili, &id, quality, raw, json).await
         }
         Commands::Download {
             id,
@@ -29,7 +30,7 @@ async fn main() -> Result<()> {
             audio_only,
             no_merge,
         } => {
-            commands::run_download(&bili, &id, &out_dir, quality, audio_only, no_merge).await
+            commands::run_download(&bili, &id, &out_dir, quality, audio_only, no_merge, json).await
         }
         Commands::Subtitle {
             id,
@@ -37,6 +38,21 @@ async fn main() -> Result<()> {
             format,
             index,
             list,
-        } => commands::run_subtitle(&bili, &id, out, &format, index, list).await,
+        } => commands::run_subtitle(&bili, &id, out, &format, index, list, json).await,
+        Commands::Transcript {
+            id,
+            page,
+            start,
+            end,
+            max_chars,
+            format,
+            no_timestamps,
+            out,
+        } => {
+            commands::run_transcript(
+                &bili, &id, page, start, end, max_chars, &format, no_timestamps, out, json,
+            )
+            .await
+        }
     }
 }
