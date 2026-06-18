@@ -4,12 +4,13 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::api::Bili;
-use crate::commands::{pick_best_subtitle, resolve};
+use crate::commands::{fetch_player_subtitles, pick_best_subtitle, resolve};
 use crate::models::SubtitleBody;
 
 pub async fn run(
     bili: &Bili,
     raw: &str,
+    page: usize,
     out: Option<PathBuf>,
     format: &str,
     index: usize,
@@ -17,15 +18,12 @@ pub async fn run(
     json: bool,
 ) -> Result<()> {
     let (_id, info) = resolve(bili, raw).await?;
-    let cid = info.pages.first().map(|p| p.cid).unwrap_or(info.cid);
+    let cid = crate::commands::cid_for_page(&info, page);
 
-    let view = bili.player_view(&_id, cid).await?;
-    let subs = view
-        .subtitle
-        .as_ref()
-        .map(|s| &s.subtitles)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| anyhow!("该视频没有可用字幕(可能需要登录 SESSDATA,或视频本身无字幕)"))?;
+    let subs = fetch_player_subtitles(bili, &_id, cid, info.aid).await?;
+    if subs.is_empty() {
+        bail!("该视频没有可用字幕(可能需要登录 SESSDATA,或视频本身无字幕)");
+    }
 
     if list_only {
         if json {
@@ -34,7 +32,7 @@ pub async fn run(
         }
         println!("{}", "可用字幕".bold().cyan());
         for (i, s) in subs.iter().enumerate() {
-            let kind = if s.ai_type != 0 { "AI" } else { "人工" };
+            let kind = if s.is_ai() { "AI" } else { "人工" };
             println!(
                 "  [{i}] {lan:<10} {doc:<20} [{kind}]  ai_status={st}",
                 i = i + 1,
@@ -51,7 +49,7 @@ pub async fn run(
         subs.get(index - 1)
             .ok_or_else(|| anyhow!("字幕索引 {index} 超出范围(共 {} 个)", subs.len()))?
     } else {
-        pick_best_subtitle(subs)
+        pick_best_subtitle(&subs)
     };
 
     if !json {
@@ -64,7 +62,7 @@ pub async fn run(
     }
 
     if chosen.subtitle_url.is_empty() {
-        bail!("字幕 URL 为空,无法获取");
+        bail!("字幕 URL 为空(请重试或用 --list 查看字幕状态)");
     }
 
     let body = bili.fetch_subtitle(&chosen.subtitle_url).await?;

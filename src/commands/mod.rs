@@ -10,7 +10,9 @@ use anyhow::Result;
 use colored::{ColoredString, Colorize};
 use serde::Serialize;
 
-use crate::models::SubtitleMeta;
+use crate::api::Bili;
+use crate::bvid::VideoId;
+use crate::models::{SubtitleBody, SubtitleMeta};
 
 pub fn human_count(n: u64) -> String {
     if n >= 100_000_000 {
@@ -56,19 +58,20 @@ pub fn pick_best_subtitle(subs: &[SubtitleMeta]) -> &SubtitleMeta {
         ("zh", false),
         ("zh-Hans", true),
         ("ai-zh", true),
+        ("zh", true),
         ("en", false),
         ("en", true),
     ];
     for (lang, allow_ai) in order {
         if let Some(m) = subs
             .iter()
-            .find(|s| s.lan.eq_ignore_ascii_case(lang) && (s.ai_type != 0) == *allow_ai)
+            .find(|s| s.lan.eq_ignore_ascii_case(lang) && s.is_ai() == *allow_ai)
         {
             return m;
         }
     }
     subs.iter()
-        .find(|s| s.ai_type == 0)
+        .find(|s| !s.is_ai())
         .unwrap_or(&subs[0])
 }
 
@@ -102,4 +105,104 @@ pub fn cid_for_page(info: &crate::models::VideoInfo, page: usize) -> u64 {
         .get(idx)
         .map(|p| p.cid)
         .unwrap_or(info.pages[0].cid)
+}
+
+/// Fetch player subtitles for a page, retrying up to 5 times. Bilibili's
+/// player/v2 endpoint has a server-side bug where AI subtitle URLs
+/// intermittently point to *other videos'* subtitles. We validate each
+/// URL's path contains the expected `aid`+`cid` and skip mismatches.
+pub async fn fetch_player_subtitles(
+    bili: &Bili,
+    id: &VideoId,
+    cid: u64,
+    aid: u64,
+) -> Result<Vec<SubtitleMeta>> {
+    let aid_str = aid.to_string();
+    let cid_str = cid.to_string();
+    let mut best: Vec<SubtitleMeta> = Vec::new();
+    let mut best_score = -1i32;
+
+    for _ in 0..5 {
+        match bili.player_view(id, cid).await {
+            Ok(view) => {
+                if let Some(sub) = view.subtitle.as_ref() {
+                    if sub.subtitles.is_empty() {
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                        continue;
+                    }
+                    // Score this batch: how many URLs contain both aid and cid?
+                    let score = sub.subtitles.iter().filter(|s| {
+                        s.subtitle_url.contains(&aid_str) && s.subtitle_url.contains(&cid_str)
+                    }).count() as i32;
+                    if score > best_score {
+                        best_score = score;
+                        best = sub.subtitles.clone();
+                    }
+                    if score > 0 {
+                        return Ok(best);
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    }
+    Ok(best)
+}
+
+/// Pick the best subtitle that has a non-empty URL whose path contains the
+/// expected `aid`+`cid` (guarding against Bilibili's server-side subtitle
+/// URL mix-up bug). Retries the API a few times. Returns
+/// (chosen_subtitle, subtitle_body) or None when truly no subtitle.
+pub async fn fetch_best_subtitle(
+    bili: &Bili,
+    id: &VideoId,
+    cid: u64,
+    aid: u64,
+) -> Result<Option<(SubtitleMeta, SubtitleBody)>> {
+    let aid_str = aid.to_string();
+    let cid_str = cid.to_string();
+
+    for attempt in 0..5 {
+        let subs = fetch_player_subtitles(bili, id, cid, aid).await?;
+        if subs.is_empty() {
+            if attempt < 4 {
+                tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            }
+            continue;
+        }
+
+        // First pass: pick best subtitle whose URL is valid (contains aid+cid)
+        for s in &subs {
+            if s.subtitle_url.is_empty() {
+                continue;
+            }
+            if !s.subtitle_url.contains(&aid_str) || !s.subtitle_url.contains(&cid_str) {
+                continue;
+            }
+            match bili.fetch_subtitle(&s.subtitle_url).await {
+                Ok(body) if !body.body.is_empty() => {
+                    return Ok(Some((s.clone(), body)));
+                }
+                _ => {}
+            }
+        }
+
+        // Second pass: try any non-empty URL (last resort, might be wrong video)
+        if attempt == 4 {
+            let chosen = pick_best_subtitle(&subs);
+            if !chosen.subtitle_url.is_empty() {
+                if let Ok(body) = bili.fetch_subtitle(&chosen.subtitle_url).await {
+                    if !body.body.is_empty() {
+                        return Ok(Some((chosen.clone(), body)));
+                    }
+                }
+            }
+        }
+
+        if attempt < 4 {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }
+    Ok(None)
 }

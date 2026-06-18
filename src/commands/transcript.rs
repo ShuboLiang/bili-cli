@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::api::Bili;
-use crate::commands::{cid_for_page, pick_best_subtitle, resolve};
+use crate::commands::{cid_for_page, fetch_best_subtitle, resolve};
 use crate::models::{SubtitleLine, SubtitleMeta, VideoInfo};
 
 pub async fn run(
@@ -22,30 +22,13 @@ pub async fn run(
     let (id, info) = resolve(bili, raw).await?;
     let cid = cid_for_page(&info, page);
 
-    let view = bili.player_view(&id, cid).await?;
-    let subs = view
-        .subtitle
-        .as_ref()
-        .map(|s| &s.subtitles)
-        .filter(|v| !v.is_empty());
+    let sub_result = fetch_best_subtitle(bili, &id, cid, info.aid).await?;
 
-    match subs {
+    match sub_result {
         None => handle_no_subtitle(&info, page, cid, &id.label(), json, out, format),
-        Some(list) if list.is_empty() => {
-            handle_no_subtitle(&info, page, cid, &id.label(), json, out, format)
-        }
-        Some(list) => {
-            let chosen = pick_best_subtitle(list);
-            if chosen.subtitle_url.is_empty() {
-                return handle_no_subtitle(&info, page, cid, &id.label(), json, out, format);
-            }
-            let body = bili.fetch_subtitle(&chosen.subtitle_url).await?;
-            if body.body.is_empty() {
-                return handle_no_subtitle(&info, page, cid, &id.label(), json, out, format);
-            }
-
+        Some((chosen, body)) => {
             let paragraphs = aggregate(&body.body, start, end);
-            let payload = build_payload(&info, page, cid, chosen, &paragraphs);
+            let payload = build_payload(&info, page, cid, &chosen, &paragraphs);
 
             if json {
                 let mut final_payload = payload.clone();
@@ -206,7 +189,7 @@ fn build_payload(
         subtitle: Some(SubtitleRef {
             lan: chosen.lan.clone(),
             lan_doc: chosen.lan_doc.clone(),
-            ai: chosen.ai_type != 0,
+            ai: chosen.is_ai(),
         }),
         paragraphs: Some(
             paragraphs

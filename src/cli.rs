@@ -75,6 +75,9 @@ pub enum Commands {
     Subtitle {
         /// BV id, AV id, or full video URL.
         id: String,
+        /// Pick a specific page (分P) by 1-based index. Default: 1.
+        #[arg(long, short = 'p', default_value_t = 1)]
+        page: usize,
         /// Output file. If omitted, prints to stdout.
         #[arg(long, short = 'o')]
         out: Option<PathBuf>,

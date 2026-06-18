@@ -35,11 +35,12 @@ async fn main() -> Result<()> {
         }
         Commands::Subtitle {
             id,
+            page,
             out,
             format,
             index,
             list,
-        } => commands::run_subtitle(&bili, &id, out, &format, index, list, json).await,
+        } => commands::run_subtitle(&bili, &id, page, out, &format, index, list, json).await,
         Commands::Frames {
             id,
             out_dir,

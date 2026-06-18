@@ -233,6 +233,15 @@ pub struct SubtitleMeta {
     pub ai_status: u32,
 }
 
+impl SubtitleMeta {
+    /// Whether this is an AI-generated subtitle. Bilibili marks AI subtitles
+    /// inconsistently: older API used `ai_type != 0`, newer uses `lan` prefix
+    /// `ai-` and/or `ai_status >= 2` (2 = generated). Treat any of these as AI.
+    pub fn is_ai(&self) -> bool {
+        self.ai_type != 0 || self.lan.to_lowercase().starts_with("ai-") || self.ai_status >= 2
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SubtitleBody {
     #[serde(default)]
